@@ -1,0 +1,269 @@
+# Smart Food Connect - Project Code
+
+This repo contains a minimal full-stack prototype for "Smart Food Connect". It's designed as a simple starter so you can submit and demo functionality. It includes a Node/Express backend and a React frontend.
+
+--- FILE: README.md ---
+# Smart Food Connect
+
+Minimal prototype for Smart Food Connect (food donation & matching).
+
+## Structure
+
+```
+Smart_Food_Connect/
+├── backend/
+│   ├── package.json
+│   ├── index.js
+│   ├── routes/donations.js
+│   ├── models/Donation.js
+│   └── .env.example
+├── frontend/
+│   ├── package.json
+│   └── src/
+│       ├── index.js
+│       ├── App.js
+│       ├── api.js
+│       └── components/
+│           ├── DonateForm.js
+│           └── DonationList.js
+└── .gitignore
+```
+
+--- FILE: .gitignore ---
+node_modules/
+.env
+frontend/node_modules/
+
+--- FILE: backend/package.json ---
+{
+  "name": "smart-food-connect-backend",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.0.0",
+    "express": "^4.18.2",
+    "mongoose": "^7.0.0"
+  }
+}
+
+--- FILE: backend/.env.example ---
+PORT=5000
+MONGODB_URI=mongodb://localhost:27017/smart_food_connect
+
+--- FILE: backend/index.js ---
+const express = require('express');
+const mongoose = require('mongoose');
+const cors = require('cors');
+const dotenv = require('dotenv');
+
+dotenv.config();
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+const donationsRouter = require('./routes/donations');
+app.use('/api/donations', donationsRouter);
+
+const PORT = process.env.PORT || 5000;
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/smart_food_connect';
+
+mongoose.connect(MONGODB_URI, { useNewUrlParser: true, useUnifiedTopology: true })
+  .then(() => {
+    console.log('Connected to MongoDB');
+    app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+  })
+  .catch(err => console.error('MongoDB connection error:', err));
+
+--- FILE: backend/models/Donation.js ---
+const mongoose = require('mongoose');
+
+const DonationSchema = new mongoose.Schema({
+  donorName: { type: String, required: true },
+  foodType: { type: String, required: true },
+  quantity: { type: String, required: true },
+  location: {
+    address: String,
+    lat: Number,
+    lng: Number
+  },
+  expiresAt: Date,
+  createdAt: { type: Date, default: Date.now }
+});
+
+module.exports = mongoose.model('Donation', DonationSchema);
+
+--- FILE: backend/routes/donations.js ---
+const express = require('express');
+const router = express.Router();
+const Donation = require('../models/Donation');
+
+// Create donation
+router.post('/', async (req, res) => {
+  try {
+    const donation = new Donation(req.body);
+    await donation.save();
+    res.status(201).json(donation);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Get all donations
+router.get('/', async (req, res) => {
+  try {
+    const donations = await Donation.find().sort({ createdAt: -1 }).limit(100);
+    res.json(donations);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+module.exports = router;
+
+--- FILE: frontend/package.json ---
+{
+  "name": "smart-food-connect-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "react-scripts": "5.0.1",
+    "axios": "1.4.0"
+  },
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test"
+  }
+}
+
+--- FILE: frontend/src/index.js ---
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import App from './App';
+
+const container = document.getElementById('root');
+const root = createRoot(container);
+root.render(<App />);
+
+--- FILE: frontend/src/api.js ---
+import axios from 'axios';
+
+const API = axios.create({ baseURL: process.env.REACT_APP_API_URL || 'http://localhost:5000/api' });
+
+export const fetchDonations = () => API.get('/donations');
+export const createDonation = (data) => API.post('/donations', data);
+
+--- FILE: frontend/src/App.js ---
+import React, { useEffect, useState } from 'react';
+import DonateForm from './components/DonateForm';
+import DonationList from './components/DonationList';
+import { fetchDonations } from './api';
+
+export default function App() {
+  const [donations, setDonations] = useState([]);
+
+  const load = async () => {
+    try {
+      const res = await fetchDonations();
+      setDonations(res.data);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  return (
+    <div style={{ maxWidth: 900, margin: '2rem auto', fontFamily: 'Arial, sans-serif' }}>
+      <h1>Smart Food Connect (Prototype)</h1>
+      <p>Submit a donation and see recent donations below.</p>
+      <DonateForm onSaved={load} />
+      <hr />
+      <DonationList donations={donations} />
+    </div>
+  );
+}
+
+--- FILE: frontend/src/components/DonateForm.js ---
+import React, { useState } from 'react';
+import { createDonation } from '../api';
+
+export default function DonateForm({ onSaved }) {
+  const [form, setForm] = useState({ donorName: '', foodType: '', quantity: '', location: { address: '' }, expiresAt: '' });
+  const [loading, setLoading] = useState(false);
+
+  const change = (e) => {
+    const { name, value } = e.target;
+    if (name === 'address') setForm(prev => ({ ...prev, location: { ...prev.location, address: value } }));
+    else setForm(prev => ({ ...prev, [name]: value }));
+  };
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      await createDonation(form);
+      setForm({ donorName: '', foodType: '', quantity: '', location: { address: '' }, expiresAt: '' });
+      onSaved && onSaved();
+    } catch (err) {
+      alert('Error saving donation');
+      console.error(err);
+    } finally { setLoading(false); }
+  };
+
+  return (
+    <form onSubmit={submit} style={{ display: 'grid', gap: 8 }}>
+      <input name="donorName" placeholder="Donor name" value={form.donorName} onChange={change} required />
+      <input name="foodType" placeholder="Food type (e.g., cooked rice)" value={form.foodType} onChange={change} required />
+      <input name="quantity" placeholder="Quantity (e.g., 5 packs)" value={form.quantity} onChange={change} required />
+      <input name="address" placeholder="Pickup address" value={form.location.address} onChange={change} />
+      <input type="datetime-local" name="expiresAt" value={form.expiresAt} onChange={change} />
+      <button type="submit" disabled={loading}>{loading ? 'Saving...' : 'Submit Donation'}</button>
+    </form>
+  );
+}
+
+--- FILE: frontend/src/components/DonationList.js ---
+import React from 'react';
+
+export default function DonationList({ donations }) {
+  if (!donations || donations.length === 0) return <p>No donations yet.</p>;
+  return (
+    <div>
+      <h2>Recent Donations</h2>
+      <ul>
+        {donations.map(d => (
+          <li key={d._id} style={{ marginBottom: 12 }}>
+            <strong>{d.foodType}</strong> — {d.quantity} by {d.donorName}
+            <div style={{ fontSize: 12, color: '#555' }}>{d.location && d.location.address}</div>
+            <div style={{ fontSize: 12, color: '#777' }}>Posted: {new Date(d.createdAt).toLocaleString()}</div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+--- END OF REPO ---
+
+# Usage (quick start)
+
+1. Backend
+   - cd backend
+   - copy .env.example to .env and update MONGODB_URI
+   - npm install
+   - npm run dev
+
+2. Frontend
+   - cd frontend
+   - npm install
+   - npm start
+
+This is a starter. You can extend with Google Maps, AI matching, auth, notifications and deployment steps.
